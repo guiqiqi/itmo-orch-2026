@@ -1,0 +1,65 @@
+services:
+  database:
+    image: postgres:16.4-alpine
+    container_name: lab2-database
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: "${DATABASE_USER}"
+      POSTGRES_PASSWORD: "${DATABASE_PASSWORD}"
+      POSTGRES_DB: "${DATABASE_NAME}"
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  init:
+    image: lab2-notes-api:latest
+    container_name: lab2-init
+    restart: "no"
+    env_file: .env
+    command: ["python", "init_db.py"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - shared
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lab2-notes-api:latest
+    container_name: lab2-app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:${PORT}:${PORT}"
+    depends_on:
+      database:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['PORT'] + '/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  shared:
+    name: lab2-network
+    driver: bridge
+
+volumes:
+  database-data:
+    name: lab2-database-data
